@@ -12,8 +12,13 @@ get_source() {
 	local project=$1
 	local version=$2
 	local destination=$3
-	git -c advice.detachedHead=false clone --branch "v$version" --depth=1 \
-		https://gitlab.com/gitlab-org/$project.git "$destination"
+	# version can be a tag or sha
+	[ "${#version}" != 40 ] && version="v$version"
+	mkdir -p "$destination" && cd "$destination"
+	git init
+	git remote add origin https://gitlab.com/gitlab-org/$project.git
+	git fetch --depth 1 origin $version
+	git -c advice.detachedHead=false checkout FETCH_HEAD
 }
 
 ####################################################################
@@ -58,7 +63,8 @@ apk add --no-cache --virtual .gitlab-buildtime \
 	re2-dev \
 	c-ares-dev \
 	yarn \
-	go
+	go \
+	bash
 
 # 5 setup system user
 adduser -D -g "GitLab" -s /bin/sh git
@@ -92,8 +98,8 @@ for config in gitlab.yml.example database.yml.postgresql; do
 	ln -sf $config "$gitlab_location"/config/${config%.*}
 done
 
-# gprc is a nightmare so we build and install our own
-sh /tmp/grpc/build.sh
+# https://github.com/protocolbuffers/protobuf/pull/6848
+sh /tmp/protobuf/build.sh
 
 # install gems to system so they are shared with gitaly
 cd "$gitlab_location"
@@ -103,14 +109,14 @@ bundle install --without development test mysql aws kerberos
 ## gitlab-shell
 ###############
 GITLAB_SHELL_VERSION=$(cat "$gitlab_location"/GITLAB_SHELL_VERSION)
-get_source gitlab-shell $GITLAB_SHELL_VERSION "/home/git/gitlab-shell"
+get_source gitlab-shell "$GITLAB_SHELL_VERSION" "/home/git/gitlab-shell"
 cd /home/git/gitlab-shell
 # needed for setup
 ln -sf config.yml.example config.yml
 patch -p0 -i /tmp/gitlab-shell/gitlab-shell-changes.patch
 install -Dm644 config.yml.example \
 	"$gitlab_location"/config/gitlab-shell/config.yml.example
-./bin/compile && ./bin/install
+make setup
 # gitlab-shell will not set PATH
 ln -s /usr/local/bin/ruby /usr/bin/ruby
 
@@ -118,7 +124,7 @@ ln -s /usr/local/bin/ruby /usr/bin/ruby
 ## gitlab-workhorse
 ###################
 GITLAB_WORKHORSE_VERSION=$(cat "$gitlab_location"/GITLAB_WORKHORSE_VERSION)
-get_source gitlab-workhorse $GITLAB_WORKHORSE_VERSION "/home/git/src/gitlab-workhorse"
+get_source gitlab-workhorse "$GITLAB_WORKHORSE_VERSION" "/home/git/src/gitlab-workhorse"
 cd /home/git/src/gitlab-workhorse
 make && make install
 
@@ -126,7 +132,7 @@ make && make install
 ## gitlab-pages
 ###############
 GITLAB_PAGES_VERSION=$(cat "$gitlab_location"/GITLAB_PAGES_VERSION)
-get_source gitlab-pages $GITLAB_PAGES_VERSION "/home/git/src/gitlab-pages"
+get_source gitlab-pages "$GITLAB_PAGES_VERSION" "/home/git/src/gitlab-pages"
 cd /home/git/src/gitlab-pages
 make
 install ./gitlab-pages /usr/local/bin/gitlab-pages
@@ -136,8 +142,7 @@ install ./gitlab-pages /usr/local/bin/gitlab-pages
 ## will also install ruby gems into system like gitlab
 #########
 GITALY_SERVER_VERSION=$(cat "$gitlab_location"/GITALY_SERVER_VERSION)
-git clone https://gitlab.com/gitlab-org/gitaly.git -b \
-        v$GITALY_SERVER_VERSION /home/git/src/gitaly
+get_source gitaly "$GITALY_SERVER_VERSION" "/home/git/src/gitaly"
 cd /home/git/src/gitaly
 patch -p0 -i /tmp/gitaly/gitaly-set-defaults.patch
 make install BUNDLE_FLAGS=--system

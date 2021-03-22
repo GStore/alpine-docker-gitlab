@@ -6,6 +6,7 @@ set -eu
 export RUBYOPT="${RUBYOPT:---disable-gems}"
 export RAILS_ENV="${RAILS_ENV:-production}"
 : "${POSTGRES_DB:=$POSTGRES_USER}"
+: "${GITLAB_SERVICES:=gitaly nginx sidekiq sshd workhorse}"
 
 # base config files found in gitlab/config dir
 BASECONF="
@@ -64,7 +65,7 @@ enable_services() {
 		[Yy]|[Tt][Rr][Uu][Ee]|[Yy][Ee][Ss]|1) web=puma;;
 	esac
 	rm -rf /run/s6 && mkdir -p /run/s6
-	for srv in gitaly nginx sidekiq sshd workhorse; do
+	for srv in $GITLAB_SERVICES; do
 		ln -sf /etc/s6/$srv /run/s6/$srv
 	done
 	ln -sf /etc/s6/$web /run/s6/web
@@ -162,6 +163,7 @@ setup() {
 	create_db
 	postgres_conf
 	install_conf
+	workhorse_conf
 	setup_ssh
 	prepare_dirs
 	prepare_conf
@@ -193,6 +195,17 @@ backup() {
 	su-exec git bundle exec rake gitlab:backup:create SKIP=$GITLAB_BACKUP_SKIP
 }
 
+dump_db() {
+	cd /home/git/gitlab
+	echo "Dumping GitLab database.."
+	local today="$(date +%Y-%m-%d)"
+	mkdir -p /home/git/backup
+	PGPASSWORD="$POSTGRES_PASSWORD" pg_dump --create --format c \
+		--host=postgres --user="$POSTGRES_USER" --dbname="$POSTGRES_DB" > \
+		/home/git/backup/"$POSTGRES_DB-$today".db
+	echo "Finished dumping: $POSTGRES_DB-$today.db"
+}
+
 logrotate() {
 	echo "Rotating log files.."
 	/usr/sbin/logrotate /etc/gitlab/logrotate/gitlab
@@ -201,6 +214,10 @@ logrotate() {
 cleanup() {
 	echo "Removing older CI build logs.."
 	find /home/git/gitlab/shared/artifacts -type f -mtime +30 -name "*.log" -delete
+}
+
+rack_attack_fix() {
+	cp  /home/git/gitlab/config/initializers/rack_attack_new.rb  /home/git/gitlab/config/initializers/rack_attack.rb.example
 }
 
 start() {
@@ -213,6 +230,7 @@ start() {
 		upgrade_check
 	else
 		echo "No configuration found. Running setup.."
+		rack_attack_fix
 		setup
 	fi
 	echo "$GITLAB_VERSION" > /etc/gitlab/.version
@@ -229,6 +247,7 @@ usage() {
 	  setup      setup GitLab (used by docker build use with care)
 	  upgrade    upgrade GitLab
 	  backup     backup GitLab (excluding secrets.yml, gitlab.yml)
+	  dump       dump database in /home/git/backup
 	  verify     verify Gitlab installation
 	  logrotate  rotate logfiles
 	  cleanup    remove older CI log files
@@ -242,6 +261,7 @@ case "${1:-help}" in
 	setup) setup ;;
 	upgrade) upgrade ;;
 	backup) backup ;;
+	dump) dump_db ;;
 	verify) verify ;;
 	logrotate) logrotate ;;
 	cleanup) cleanup ;;

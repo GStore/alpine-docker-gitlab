@@ -2,8 +2,8 @@ version: '3.5'
 services:
   gitlab:
     image: alpinelinux/alpine-docker-gitlab
-    build: gitlab
-    hostname: ${GITLAB_HOSTNAME}
+    build: .
+    hostname: ${GITLAB_HOSTNAME:-gitlab}
     restart: always
     volumes:
       - /srv/docker/gitlab/repositories:/home/git/repositories
@@ -25,6 +25,7 @@ services:
       - GITLAB_ROOT_PASSWORD
       - GITLAB_BACKUP_SKIP
       - GITLAB_USE_PUMA
+      - GITLAB_SERVICES
   postgres:
     image: postgres:11-alpine
     restart: always
