@@ -216,6 +216,10 @@ cleanup() {
 	find /home/git/gitlab/shared/artifacts -type f -mtime +30 -name "*.log" -delete
 }
 
+rack_attack_fix() {
+	cp  /home/git/gitlab/config/initializers/rack_attack_new.rb  /home/git/gitlab/config/initializers/rack_attack.rb.example
+}
+
 start() {
 	if [ -f "/etc/gitlab/.version" ]; then
 		echo "Configuration found"
@@ -226,6 +230,7 @@ start() {
 		upgrade_check
 	else
 		echo "No configuration found. Running setup.."
+		rack_attack_fix
 		setup
 	fi
 	echo "$GITLAB_VERSION" > /etc/gitlab/.version
